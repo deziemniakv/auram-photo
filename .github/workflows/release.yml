@@ -1,52 +1,105 @@
 name: Release
 
-# Builds the Windows package for a version tag and attaches it, together with
-# the auram-release.json manifest Auram Launcher reads, to a draft GitHub
-# release. A maintainer reviews and publishes the draft manually.
+# Builds the Windows package and attaches it, together with the
+# auram-release.json manifest Auram Launcher reads, to a draft GitHub release.
+# A maintainer reviews and publishes the draft manually.
+#
+# Two ways to start a release of the version in apps/photo/package.json:
+# - Actions → Release → Run workflow (on main): builds, then creates the tag.
+# - Pushing a tag v<version> yourself.
 on:
+  workflow_dispatch:
   push:
     tags: ['v*.*.*']
 
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   windows:
     runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
         with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+          fetch-depth: 0
 
-      - name: Verify tag matches the application version
+      - name: Determine version
+        id: version
         shell: bash
         run: |
           version=$(node -p "require('./apps/photo/package.json').version")
-          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+          tag="v${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            # Manual releases are cut from main only, and never reuse a version.
+            if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+              echo "Run the release workflow on main (it was started on ${GITHUB_REF})." >&2
+              exit 1
+            fi
+            if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+              echo "Tag ${tag} already exists. Bump the version in apps/photo/package.json first." >&2
+              exit 1
+            fi
+          elif [ "${tag}" != "${GITHUB_REF_NAME}" ]; then
             echo "Tag ${GITHUB_REF_NAME} does not match apps/photo/package.json version ${version}" >&2
             exit 1
           fi
 
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "A release for ${tag} already exists; nothing to do." >&2
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@v4
+        if: steps.version.outputs.exists == 'false'
+      - uses: actions/setup-node@v5
+        if: steps.version.outputs.exists == 'false'
+        with:
+          node-version: 22
+          cache: pnpm
+      - if: steps.version.outputs.exists == 'false'
+        run: pnpm install --frozen-lockfile
+      - if: steps.version.outputs.exists == 'false'
+        run: pnpm lint
+      - if: steps.version.outputs.exists == 'false'
+        run: pnpm typecheck
+      - if: steps.version.outputs.exists == 'false'
+        run: pnpm test
 
       - name: Build package and release manifest
+        if: steps.version.outputs.exists == 'false'
         run: pnpm --filter @auram/photo package:win
 
-      - name: Create draft release
+      # Created only after the build succeeded, so a failed build never leaves a tag behind.
+      # Tags pushed with GITHUB_TOKEN do not start this workflow again.
+      - name: Create tag
+        if: steps.version.outputs.exists == 'false' && github.event_name == 'workflow_dispatch'
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version=$(node -p "require('./apps/photo/package.json').version")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" "${GITHUB_SHA}" -m "Auram Photo ${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Create draft release
+        if: steps.version.outputs.exists == 'false'
+        shell: bash
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          tag="${{ steps.version.outputs.tag }}"
           dir="apps/photo/release/${version}"
           prerelease=""
           if [[ "${version}" == *-* ]]; then prerelease="--prerelease"; fi
-          gh release create "v${version}" --draft ${prerelease} --title "Auram Photo ${version}" \
-            --notes "See CHANGELOG.md." \
-            "${dir}"/auram-photo-"${version}"-win32-x64.zip "${dir}/auram-release.json"
+          gh release create "${tag}" --draft ${prerelease} --verify-tag --title "Auram Photo ${version}" \
+            --notes "See [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${tag}/CHANGELOG.md)." \
+            "${dir}/auram-photo-${version}-win32-x64.zip" "${dir}/auram-release.json"

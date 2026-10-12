@@ -5,7 +5,7 @@ and [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-10-12
 
 First development version (milestone 1: core editor).
 
