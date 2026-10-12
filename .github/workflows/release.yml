@@ -1,14 +1,24 @@
 name: Release
 
 # Builds the Windows package and attaches it, together with the
-# auram-release.json manifest Auram Launcher reads, to a draft GitHub release.
-# A maintainer reviews and publishes the draft manually.
+# auram-release.json manifest Auram Launcher reads, to a draft GitHub release,
+# and optionally publishes that draft after verifying its files.
 #
-# Two ways to start a release of the version in apps/photo/package.json:
-# - Actions → Release → Run workflow (on main): builds, then creates the tag.
-# - Pushing a tag v<version> yourself.
+# Start it from Actions → Release → Run workflow on main (releases the version in
+# apps/photo/package.json), or by pushing a tag v<version>.
+#
+# The workflow never deletes, moves or overwrites tags or releases:
+# - no tag yet:                 build main, create the tag, create a draft release
+# - tag exists, no release:     build the tagged commit, create a draft release
+# - draft or published release: nothing to build
+# With "publish" ticked, a draft is published only if its ZIP and manifest verify.
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the draft release after verifying its files
+        type: boolean
+        default: false
   push:
     tags: ['v*.*.*']
 
@@ -20,86 +30,169 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  windows:
+  prepare:
+    name: Inspect tag and release
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      version: ${{ steps.state.outputs.version }}
+      tag: ${{ steps.state.outputs.tag }}
+      build: ${{ steps.state.outputs.build }}
+      build_ref: ${{ steps.state.outputs.build_ref }}
+      create_tag: ${{ steps.state.outputs.create_tag }}
+      release: ${{ steps.state.outputs.release }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Determine what to do
+        id: state
+        shell: bash
+        run: |
+          set -euo pipefail
+          summary() { echo "$1" | tee -a "$GITHUB_STEP_SUMMARY"; }
+
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+              echo "::error::Run the release workflow on main (it was started on ${GITHUB_REF})."
+              exit 1
+            fi
+            version=$(node -p "require('./apps/photo/package.json').version")
+            tag="v${version}"
+          else
+            tag="${GITHUB_REF_NAME}"
+            version="${tag#v}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          summary "### Auram Photo ${version}"
+
+          # Existing tag: always build exactly the tagged commit, and only if it is
+          # part of main and carries the matching version.
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            ref=$(git rev-parse "${tag}^{commit}")
+            if ! git merge-base --is-ancestor "${ref}" origin/main; then
+              echo "::error::Tag ${tag} points to ${ref}, which is not on main. Not releasing it."
+              exit 1
+            fi
+            tagged_version=$(git show "${ref}:apps/photo/package.json" | node -p "JSON.parse(require('fs').readFileSync(0)).version")
+            if [ "${tagged_version}" != "${version}" ]; then
+              echo "::error::Tag ${tag} points to a commit with version ${tagged_version}."
+              exit 1
+            fi
+            summary "- Tag \`${tag}\` exists at \`${ref}\`."
+            echo "create_tag=false" >> "$GITHUB_OUTPUT"
+          else
+            if [ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]; then
+              echo "::error::Tag ${tag} not found."
+              exit 1
+            fi
+            ref="${GITHUB_SHA}"
+            summary "- Tag \`${tag}\` does not exist yet; it will be created at \`${ref}\` after a successful build."
+            echo "create_tag=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "build_ref=${ref}" >> "$GITHUB_OUTPUT"
+
+          # gh finds draft releases by tag as well as published ones.
+          if json=$(gh release view "${tag}" --json isDraft,assets 2>/dev/null); then
+            if [ "$(echo "${json}" | jq -r .isDraft)" = "true" ]; then release=draft; else release=published; fi
+            summary "- Release for \`${tag}\` exists (${release}) with assets: $(echo "${json}" | jq -r '[.assets[].name] | join(", ")')."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            release=none
+            summary "- No release for \`${tag}\` yet; building one."
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "release=${release}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build and create draft release
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
     runs-on: windows-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 0
-
-      - name: Determine version
-        id: version
-        shell: bash
-        run: |
-          version=$(node -p "require('./apps/photo/package.json').version")
-          tag="v${version}"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
-
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            # Manual releases are cut from main only, and never reuse a version.
-            if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
-              echo "Run the release workflow on main (it was started on ${GITHUB_REF})." >&2
-              exit 1
-            fi
-            if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
-              echo "Tag ${tag} already exists. Bump the version in apps/photo/package.json first." >&2
-              exit 1
-            fi
-          elif [ "${tag}" != "${GITHUB_REF_NAME}" ]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match apps/photo/package.json version ${version}" >&2
-            exit 1
-          fi
-
-          if gh release view "${tag}" >/dev/null 2>&1; then
-            echo "A release for ${tag} already exists; nothing to do." >&2
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
+          ref: ${{ needs.prepare.outputs.build_ref }}
       - uses: pnpm/action-setup@v4
-        if: steps.version.outputs.exists == 'false'
       - uses: actions/setup-node@v5
-        if: steps.version.outputs.exists == 'false'
         with:
           node-version: 22
           cache: pnpm
-      - if: steps.version.outputs.exists == 'false'
-        run: pnpm install --frozen-lockfile
-      - if: steps.version.outputs.exists == 'false'
-        run: pnpm lint
-      - if: steps.version.outputs.exists == 'false'
-        run: pnpm typecheck
-      - if: steps.version.outputs.exists == 'false'
-        run: pnpm test
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
 
       - name: Build package and release manifest
-        if: steps.version.outputs.exists == 'false'
         run: pnpm --filter @auram/photo package:win
 
-      # Created only after the build succeeded, so a failed build never leaves a tag behind.
+      # Created only after the build succeeded, so a failed build never leaves a tag.
       # Tags pushed with GITHUB_TOKEN do not start this workflow again.
       - name: Create tag
-        if: steps.version.outputs.exists == 'false' && github.event_name == 'workflow_dispatch'
+        if: needs.prepare.outputs.create_tag == 'true'
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -a "${{ steps.version.outputs.tag }}" "${GITHUB_SHA}" -m "Auram Photo ${{ steps.version.outputs.version }}"
-          git push origin "${{ steps.version.outputs.tag }}"
+          git tag -a "${{ needs.prepare.outputs.tag }}" "${{ needs.prepare.outputs.build_ref }}" \
+            -m "Auram Photo ${{ needs.prepare.outputs.version }}"
+          git push origin "${{ needs.prepare.outputs.tag }}"
 
       - name: Create draft release
-        if: steps.version.outputs.exists == 'false'
         shell: bash
         run: |
-          version="${{ steps.version.outputs.version }}"
-          tag="${{ steps.version.outputs.tag }}"
+          version="${{ needs.prepare.outputs.version }}"
+          tag="${{ needs.prepare.outputs.tag }}"
           dir="apps/photo/release/${version}"
           prerelease=""
           if [[ "${version}" == *-* ]]; then prerelease="--prerelease"; fi
           gh release create "${tag}" --draft ${prerelease} --verify-tag --title "Auram Photo ${version}" \
-            --notes "See [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/${tag}/CHANGELOG.md)." \
+            --notes "See [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)." \
             "${dir}/auram-photo-${version}-win32-x64.zip" "${dir}/auram-release.json"
+
+  publish:
+    name: Verify and publish
+    needs: [prepare, build]
+    # Runs after a successful build, or directly when a draft already existed.
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' && inputs.publish &&
+      needs.prepare.result == 'success' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify release files
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ needs.prepare.outputs.tag }}"
+          version="${{ needs.prepare.outputs.version }}"
+          json=$(gh release view "${tag}" --json isDraft,assets)
+          if [ "$(echo "${json}" | jq -r .isDraft)" != "true" ]; then
+            echo "Release ${tag} is already published; nothing to do." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "draft=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "draft=true" >> "$GITHUB_OUTPUT"
+          assets=$(echo "${json}" | jq -r '[.assets[].name] | join(",")')
+          mkdir -p release-assets
+          gh release download "${tag}" --dir release-assets \
+            --pattern "auram-photo-${version}-win32-x64.zip" --pattern auram-release.json || true
+          node scripts/verify-release.mjs --dir release-assets --version "${version}" \
+            --repository "${GITHUB_REPOSITORY}" --assets "${assets}"
+
+      - name: Publish release
+        if: steps.verify.outputs.draft == 'true'
+        shell: bash
+        run: |
+          gh release edit "${{ needs.prepare.outputs.tag }}" --draft=false
+          echo "Published ${{ needs.prepare.outputs.tag }}." | tee -a "$GITHUB_STEP_SUMMARY"
