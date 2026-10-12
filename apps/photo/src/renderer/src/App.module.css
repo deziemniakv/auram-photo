@@ -1,0 +1,73 @@
+.app {
+  display: grid;
+  grid-template-rows: var(--topbar-height) 40px minmax(0, 1fr) 24px;
+  height: 100vh;
+}
+
+.topbar {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+  background: var(--color-surface-0);
+  border-bottom: var(--border-width) solid var(--color-border-subtle);
+  -webkit-app-region: drag;
+}
+
+:global(html[data-platform='darwin']) .topbar {
+  padding-left: 72px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+}
+
+.wordmark {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.product {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  align-self: center;
+  overflow: hidden;
+  padding: 0 var(--space-4);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 288px;
+  min-height: 0;
+}
+
+.empty {
+  grid-row: 2 / 4;
+  min-height: 0;
+}
+
+.boot {
+  display: grid;
+  place-content: center;
+  height: 100vh;
+  padding: var(--space-8);
+}
+
+.boot > * {
+  width: min(480px, 100%);
+}

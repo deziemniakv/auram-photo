@@ -1,0 +1,43 @@
+{
+  "name": "@auram/photo",
+  "productName": "Auram Photo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Photo editing and graphic design application of the Auram creative ecosystem.",
+  "license": "Apache-2.0",
+  "author": "Auram contributors",
+  "homepage": "https://github.com/deziemniakv/auram-photo",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "node ../../scripts/generate-licenses.mjs && electron-vite build",
+    "typecheck": "tsc -p tsconfig.node.json && tsc -p tsconfig.web.json",
+    "test:e2e": "playwright test",
+    "package:win": "pnpm run build && node ../../scripts/write-app-descriptor.mjs && electron-builder --win --publish never && node ../../scripts/write-release-manifest.mjs",
+    "package:dir": "pnpm run build && node ../../scripts/write-app-descriptor.mjs && electron-builder --dir --publish never"
+  },
+  "devDependencies": {
+    "@auram/app-manifest": "workspace:*",
+    "@auram/design-tokens": "workspace:*",
+    "@auram/photo-engine": "workspace:*",
+    "@auram/project-format": "workspace:*",
+    "@auram/ui": "workspace:*",
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^24.9.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "44.7.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "fast-png": "^8.0.0",
+    "fflate": "^0.8.3",
+    "lucide-react": "^1.55.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "~6.0.3",
+    "vite": "^7.3.7",
+    "zod": "^4.6.6",
+    "zustand": "^5.0.15"
+  }
+}

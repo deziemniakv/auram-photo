@@ -1,0 +1,143 @@
+.field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+}
+
+.description {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+
+.error {
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.input,
+.select {
+  width: 100%;
+  height: var(--control-height-md);
+  padding: 0 var(--control-padding-x);
+  background: var(--color-surface-0);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-none);
+  font-size: var(--text-md);
+  color: var(--color-text-primary);
+  user-select: text;
+  transition: border-color var(--duration-fast) var(--easing-standard);
+}
+
+.input:hover:not(:disabled),
+.select:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+}
+
+.input:focus-visible,
+.select:focus-visible {
+  outline-offset: 0;
+  border-color: var(--color-focus);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.input:disabled,
+.select:disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+.input[readonly] {
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.selectWrap {
+  position: relative;
+}
+
+.select {
+  appearance: none;
+  padding-right: calc(var(--control-padding-x) + var(--icon-md) + var(--space-2));
+  cursor: pointer;
+}
+
+.select option {
+  background: var(--color-surface-1);
+  color: var(--color-text-primary);
+}
+
+.chevron {
+  position: absolute;
+  top: 50%;
+  right: var(--control-padding-x);
+  width: var(--icon-md);
+  height: var(--icon-md);
+  transform: translateY(-50%);
+  color: var(--color-text-tertiary);
+  pointer-events: none;
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.switchInput {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  background: var(--color-surface-0);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: var(--radius-none);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
+}
+
+.switchInput::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  background: var(--color-text-tertiary);
+  transition:
+    transform var(--duration-base) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+
+.switchInput:checked {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.switchInput:checked::after {
+  background: var(--color-text-inverse);
+  transform: translateX(16px);
+}
+
+.switchInput:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.switchText {
+  display: grid;
+  gap: 2px;
+}

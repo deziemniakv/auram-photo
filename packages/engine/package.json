@@ -1,0 +1,24 @@
+{
+  "name": "@auram/photo-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Document model, raster operations, history and WebGL2 compositor for Auram Photo.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./webgl": "./src/webgl/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  },
+  "dependencies": {
+    "@auram/project-format": "workspace:*",
+    "fast-png": "^8.0.0",
+    "fflate": "^0.8.3",
+    "zod": "^4.6.6"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@auram/app-manifest",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Schemas and pure logic for the Auram application catalog, release manifests and installed application records.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/fixtures.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
+}
