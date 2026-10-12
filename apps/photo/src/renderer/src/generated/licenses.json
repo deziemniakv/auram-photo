@@ -1,0 +1,62 @@
+[
+  {
+    "name": "electron",
+    "version": "44.7.0",
+    "license": "MIT",
+    "repository": "https://github.com/electron/electron"
+  },
+  {
+    "name": "fast-png",
+    "version": "8.0.0",
+    "license": "MIT",
+    "repository": "https://github.com/image-js/fast-png"
+  },
+  {
+    "name": "fflate",
+    "version": "0.8.3",
+    "license": "MIT",
+    "repository": "https://github.com/101arrowz/fflate"
+  },
+  {
+    "name": "iobuffer",
+    "version": "6.0.1",
+    "license": "MIT",
+    "repository": "https://github.com/image-js/iobuffer"
+  },
+  {
+    "name": "lucide-react",
+    "version": "1.55.0",
+    "license": "ISC",
+    "repository": "https://github.com/lucide-icons/lucide"
+  },
+  {
+    "name": "react",
+    "version": "19.3.0",
+    "license": "MIT",
+    "repository": "https://github.com/react/react"
+  },
+  {
+    "name": "react-dom",
+    "version": "19.3.0",
+    "license": "MIT",
+    "repository": "https://github.com/react/react"
+  },
+  {
+    "name": "scheduler",
+    "version": "0.28.0",
+    "license": "MIT",
+    "repository": "https://github.com/react/react"
+  },
+  {
+    "name": "zod",
+    "version": "4.6.6",
+    "license": "MIT",
+    "repository": "https://github.com/colinhacks/zod"
+  },
+  {
+    "name": "zustand",
+    "version": "5.0.15",
+    "license": "MIT",
+    "repository": "https://github.com/pmndrs/zustand"
+  }
+]

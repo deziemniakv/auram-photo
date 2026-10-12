@@ -1,0 +1,130 @@
+/*
+ * Auram design tokens.
+ *
+ * The single source of visual constants for every Auram interface.
+ * Components must reference these variables instead of hardcoding values.
+ * Values mirrored in index.ts are verified by tokens.test.ts.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Neutral surfaces, darkest to lightest. */
+  --color-bg: #0b0b0c;
+  --color-surface-0: #0f0f10;
+  --color-surface-1: #141416;
+  --color-surface-2: #1a1a1d;
+  --color-surface-3: #232327;
+  --color-overlay: rgb(0 0 0 / 0.64);
+
+  /* Borders. Thin borders separate surfaces instead of shadows. */
+  --color-border-subtle: #1e1e21;
+  --color-border: #2a2a2e;
+  --color-border-strong: #3d3d42;
+
+  /* Text. */
+  --color-text-primary: #ececed;
+  --color-text-secondary: #a3a3a8;
+  --color-text-tertiary: #6f6f75;
+  --color-text-disabled: #4a4a4f;
+  --color-text-inverse: #0b0b0c;
+
+  /* Primary action: monochrome, no hue. */
+  --color-primary: #e8e8e9;
+  --color-primary-hover: #ffffff;
+  --color-primary-active: #cfcfd1;
+
+  /* Restrained semantic colors, used only for meaningful states. */
+  --color-success: #5f9e74;
+  --color-warning: #c4a052;
+  --color-danger: #d0625a;
+  --color-danger-surface: #2a1615;
+  --color-info: #7d98c2;
+
+  /* Focus indicator: the only saturated hue, so keyboard focus is never ambiguous. */
+  --color-focus: #8fb0ff;
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+
+  /* Geometry. Square corners are the default; --radius-xs is for rare exceptions. */
+  --radius-none: 0;
+  --radius-xs: 2px;
+  --border-width: 1px;
+
+  /* Spacing scale (4px base). */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Typography. System faces keep startup fast and render crisply on high-DPI displays. */
+  --font-sans:
+    'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial,
+    sans-serif;
+  --font-mono: 'Cascadia Mono', Consolas, 'SFMono-Regular', Menlo, monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-lg: 15px;
+  --text-xl: 20px;
+  --text-2xl: 28px;
+
+  --leading-tight: 1.2;
+  --leading-normal: 1.45;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  --tracking-caps: 0.08em;
+
+  /* Controls. */
+  --control-height-sm: 28px;
+  --control-height-md: 32px;
+  --control-height-lg: 40px;
+  --control-padding-x: 12px;
+
+  /* Icons. */
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-xl: 24px;
+
+  /* Layout. */
+  --topbar-height: 40px;
+  --sidebar-width: 232px;
+  --content-max-width: 1280px;
+  --content-padding: 32px;
+  --grid-gap: 16px;
+  --card-min-width: 264px;
+  --dialog-width: 480px;
+
+  /* Motion. Short and functional; disabled entirely when reduced motion is requested. */
+  --duration-fast: 80ms;
+  --duration-base: 140ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Layers. */
+  --z-dialog: 100;
+  --z-toast: 200;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+  }
+}
+
+:root[data-reduce-motion='true'] {
+  --duration-fast: 0ms;
+  --duration-base: 0ms;
+}

@@ -1,0 +1,45 @@
+# Auram Photo is distributed as a ZIP that Auram Launcher installs and verifies.
+# See docs/release.md and the launcher's docs/app-integration.md.
+appId: com.auram.photo
+productName: Auram Photo
+copyright: Copyright © 2026 Auram contributors
+
+directories:
+  output: release/${version}
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+
+# The launcher reads this descriptor from the root of the installed package.
+extraFiles:
+  - from: build/auram-app.json
+    to: auram-app.json
+
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: zip
+      arch: [x64]
+  artifactName: auram-photo-${version}-win32-${arch}.${ext}
+
+linux:
+  executableName: auram-photo
+  icon: build/icon.png
+  target: [dir]
+
+mac:
+  icon: build/icon.png
+  target: [dir]
+
+publish: null

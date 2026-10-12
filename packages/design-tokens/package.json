@@ -1,0 +1,18 @@
+{
+  "name": "@auram/design-tokens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Design tokens for the Auram interface: colors, spacing, typography, geometry and motion.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens.css"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
+}
