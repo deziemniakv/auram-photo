@@ -1,3 +1,4 @@
+import { invert, type Affine } from '../affine';
 import { blendModeIndex } from '../blend';
 import type { DocumentChange, PhotoDocument } from '../document';
 import type { Rect } from '../geometry';
@@ -41,6 +42,24 @@ interface Target {
   framebuffer: WebGLFramebuffer;
 }
 
+/** Pixels lifted off a layer for a free transform, drawn through `transform`. */
+export interface FloatingImage {
+  layerId: string;
+  /** Straight-alpha RGBA8, `width` × `height`. */
+  data: Uint8ClampedArray;
+  width: number;
+  height: number;
+  /** Document position of the image's top-left corner before transforming. */
+  x: number;
+  y: number;
+}
+
+interface Floating {
+  image: FloatingImage;
+  texture: WebGLTexture;
+  inverse: Float32Array;
+}
+
 /**
  * GPU compositor for a PhotoDocument. Layer pixels live in RGBA8 textures that
  * are updated incrementally from document change events; the stack is
@@ -59,6 +78,7 @@ export class Compositor {
   private floatTargets = false;
   private lost = false;
   private readonly offsets = new Map<string, { x: number; y: number }>();
+  private floating: Floating | null = null;
   private readonly unsubscribe: () => void;
   private readonly onLost = (event: Event) => {
     event.preventDefault();
@@ -108,6 +128,11 @@ export class Compositor {
         'u_mode',
         'u_offset',
         'u_size',
+        'u_hasFloat',
+        'u_float',
+        'u_floatSize',
+        'u_floatOrigin',
+        'u_floatInverse',
       ]),
       clear: this.createProgram(CLEAR_FRAGMENT, []),
       display: this.createProgram(DISPLAY_FRAGMENT, [
@@ -128,8 +153,34 @@ export class Compositor {
     this.layerTextures.clear();
     this.targets = [this.createTarget(true), this.createTarget(true)];
     this.resolveTarget = null;
+    this.result = null;
+    if (this.floating) {
+      const image = this.floating.image;
+      const inverse = this.floating.inverse;
+      this.floating = null;
+      this.setFloating(image);
+      this.floating!.inverse = inverse;
+    }
     this.syncLayers();
     this.dirty = true;
+  }
+
+  /** Recreates every size-dependent texture after the document was resized. */
+  private resize(): void {
+    const gl = this.gl;
+    for (const texture of this.layerTextures.values()) gl.deleteTexture(texture);
+    this.layerTextures.clear();
+    for (const target of [...(this.targets ?? []), this.resolveTarget]) {
+      if (!target) continue;
+      gl.deleteTexture(target.texture);
+      gl.deleteFramebuffer(target.framebuffer);
+    }
+    this.offsets.clear();
+    this.clearFloating();
+    this.targets = [this.createTarget(true), this.createTarget(true)];
+    this.resolveTarget = null;
+    this.result = null;
+    this.syncLayers();
   }
 
   private createProgram(fragmentSource: string, uniformNames: string[]): Program {
@@ -238,6 +289,7 @@ export class Compositor {
     if (this.lost) return;
     if (change.kind === 'pixels') this.upload(change.layerId, change.rect);
     if (change.kind === 'layers') this.syncLayers();
+    if (change.kind === 'size') this.resize();
     if (change.kind !== 'selection' && change.kind !== 'active-layer') this.invalidate();
   }
 
@@ -257,6 +309,50 @@ export class Compositor {
   clearLayerOffsets(): void {
     if (this.offsets.size === 0) return;
     this.offsets.clear();
+    this.invalidate();
+  }
+
+  /**
+   * Shows pixels floating over a layer (free transform preview). They are drawn
+   * with the identity transform until {@link setFloatingTransform} is called.
+   */
+  setFloating(image: FloatingImage): void {
+    const gl = this.gl;
+    this.clearFloating();
+    const texture = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, image.width, image.height);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texSubImage2D(
+      gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      image.width,
+      image.height,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      image.data,
+    );
+    this.floating = { image, texture, inverse: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]) };
+    this.invalidate();
+  }
+
+  /** Sets the document-to-document transform applied to the floating pixels. */
+  setFloatingTransform(transform: Affine): void {
+    if (!this.floating) return;
+    const m = invert(transform);
+    // Column-major mat3.
+    this.floating.inverse = new Float32Array([m.a, m.b, 0, m.c, m.d, 0, m.e, m.f, 1]);
+    this.invalidate();
+  }
+
+  clearFloating(): void {
+    if (!this.floating) return;
+    if (!this.lost) this.gl.deleteTexture(this.floating.texture);
+    this.floating = null;
     this.invalidate();
   }
 
@@ -282,6 +378,15 @@ export class Compositor {
     gl.uniform1i(p.uniforms.get('u_backdrop')!, 0);
     gl.uniform1i(p.uniforms.get('u_layer')!, 1);
     gl.uniform2i(p.uniforms.get('u_size')!, width, height);
+    gl.uniform1i(p.uniforms.get('u_float')!, 2);
+    const floating = this.floating;
+    if (floating) {
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, floating.texture);
+      gl.uniform2i(p.uniforms.get('u_floatSize')!, floating.image.width, floating.image.height);
+      gl.uniform2f(p.uniforms.get('u_floatOrigin')!, floating.image.x, floating.image.y);
+      gl.uniformMatrix3fv(p.uniforms.get('u_floatInverse')!, false, floating.inverse);
+    }
     for (const layer of this.doc.layers) {
       if (!layer.visible || layer.opacity <= 0) continue;
       const offset = this.offsets.get(layer.id) ?? { x: 0, y: 0 };
@@ -293,6 +398,7 @@ export class Compositor {
       gl.uniform1f(p.uniforms.get('u_opacity')!, layer.opacity);
       gl.uniform1i(p.uniforms.get('u_mode')!, blendModeIndex(layer.blendMode));
       gl.uniform2i(p.uniforms.get('u_offset')!, offset.x, offset.y);
+      gl.uniform1i(p.uniforms.get('u_hasFloat')!, floating?.image.layerId === layer.id ? 1 : 0);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       [source, destination] = [destination, source];
     }
@@ -390,6 +496,7 @@ export class Compositor {
       gl.deleteFramebuffer(target.framebuffer);
     }
     this.layerTextures.clear();
+    this.clearFloating();
     gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 }

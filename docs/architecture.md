@@ -16,11 +16,13 @@ package so that it can be tested without a window and reused later.
 
 - A `PhotoDocument` has a fixed size, a stack of layers (bottom to top), an active layer and an
   optional selection.
-- Every layer is a full-document-size **straight-alpha RGBA8** `Raster`. Layers have no offset in
-  this milestone, so moving pixels beyond the canvas edge discards them.
+- Every layer is a full-document-size **straight-alpha RGBA8** `Raster`. Layers have no offset
+  yet, so moving or transforming pixels beyond the canvas edge discards them.
+- The document size can change (image size, canvas size, crop, rotation). `setGeometry` replaces
+  the size, every layer's raster and the selection at once and emits a `size` change.
 - A `Selection` is an 8-bit coverage mask with soft edges (elliptical selections are anti-aliased).
 - Documents emit change events: `pixels` (layer + rectangle), `layers`, `active-layer`,
-  `selection`. The compositor and the UI subscribe to them.
+  `selection` and `size`. The compositor and the UI subscribe to them.
 
 ## Editing and undo
 
@@ -33,6 +35,29 @@ version number that the UI compares with the last saved version to show unsaved 
 Brush and eraser strokes (`brush.ts`) accumulate dab coverage with `max` into a stroke mask and
 recompute the layer from its pre-stroke pixels. A stroke therefore never exceeds its opacity where
 it overlaps itself, respects soft selection edges, and produces an exact undo patch.
+
+## Geometry and resampling
+
+`resample.ts` resizes rasters and selection masks with a separable filter (bilinear, Catmull-Rom
+bicubic, Lanczos-3, or nearest neighbour). Colour is filtered premultiplied by alpha, so
+transparent pixels never darken edges, and shrinking widens the filter so every source pixel
+contributes. Same-size resampling and whole-pixel transforms are exact.
+
+`transform.ts` builds on it:
+
+- **Image size** resamples every layer and the selection.
+- **Canvas size** and **crop** reposition pixels without resampling.
+- **Rotate** turns the canvas by exact quarter turns.
+- **Free transform** lifts the selected pixels (or the layer's content), maps them through an
+  affine matrix (prefiltering when it shrinks them), and composites them back. The selection is
+  transformed with them.
+
+Size changes are undone with a `geometryChange` command that keeps the previous rasters.
+
+Resampling, rotation and free transforms run in the worker; the editor blocks input while it
+waits, then records the result as one undo step. While a free transform is being edited, the
+lifted pixels are a preview change outside the history. The compositor draws them through the
+inverse matrix with premultiplied bilinear sampling, so dragging the box never touches the CPU.
 
 ## Rendering
 

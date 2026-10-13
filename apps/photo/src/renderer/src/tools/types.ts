@@ -29,4 +29,6 @@ export interface ToolHandler {
   up(ctx: ToolContext, pointer: ToolPointer): void;
   /** Abandons the gesture (e.g. Escape or lost pointer capture). */
   cancel(ctx: ToolContext): void;
+  /** CSS cursor for the pointer position while no gesture is in progress. */
+  hover?(ctx: ToolContext, pointer: ToolPointer): string | null;
 }

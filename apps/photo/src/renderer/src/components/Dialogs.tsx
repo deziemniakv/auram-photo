@@ -1,9 +1,22 @@
 import { useState } from 'react';
 import { ExternalLink } from 'lucide-react';
-import { toHex, type Background } from '@auram/photo-engine';
+import {
+  RESAMPLE_METHODS,
+  WHITE,
+  toHex,
+  type Anchor,
+  type Background,
+  type ResampleMethod,
+} from '@auram/photo-engine';
 import { Button, Dialog, Field, Select, TextInput } from '@auram/ui';
 import type { ExportFormat } from '../../../shared/ipc';
-import { exportImage, maxDocumentSize, newDocument } from '../editor/actions';
+import {
+  exportImage,
+  maxDocumentSize,
+  newDocument,
+  resizeCanvas,
+  resizeImage,
+} from '../editor/actions';
 import { useEditor } from '../editor/store';
 import { useT } from '../i18n';
 import { call } from '../lib/api';
@@ -139,6 +152,255 @@ function NewImageDialog() {
           <p className={styles.error} role="alert">
             {t.newDialog.sizeError(max)}
           </p>
+        )}
+        <button type="submit" hidden />
+      </form>
+    </Dialog>
+  );
+}
+
+/** Parses a size field; returns NaN unless it is a whole number. */
+const parseSize = (value: string) => (/^\s*\d+\s*$/.test(value) ? Number(value) : Number.NaN);
+const validSize = (w: number, h: number, max: number) =>
+  Number.isInteger(w) && Number.isInteger(h) && w >= 1 && h >= 1 && w <= max && h <= max;
+
+function SizeFields({
+  width,
+  height,
+  onWidth,
+  onHeight,
+}: {
+  width: string;
+  height: string;
+  onWidth: (value: string) => void;
+  onHeight: (value: string) => void;
+}) {
+  const t = useT();
+  return (
+    <div className={styles.pair}>
+      <Field label={`${t.imageSizeDialog.width} (${t.common.pixels})`}>
+        {({ controlId }) => (
+          <TextInput
+            id={controlId}
+            inputMode="numeric"
+            value={width}
+            autoFocus
+            onChange={(event) => onWidth(event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label={`${t.imageSizeDialog.height} (${t.common.pixels})`}>
+        {({ controlId }) => (
+          <TextInput
+            id={controlId}
+            inputMode="numeric"
+            value={height}
+            onChange={(event) => onHeight(event.target.value)}
+          />
+        )}
+      </Field>
+    </div>
+  );
+}
+
+function ImageSizeDialog() {
+  const t = useT();
+  const session = useEditor((s) => s.session);
+  const doc = session!.doc;
+  const [width, setWidth] = useState(String(doc.width));
+  const [height, setHeight] = useState(String(doc.height));
+  const [keep, setKeep] = useState(true);
+  const [method, setMethod] = useState<ResampleMethod>('bicubic');
+  const max = maxDocumentSize();
+  const w = parseSize(width);
+  const h = parseSize(height);
+  const valid = validSize(w, h, max);
+  const proportional = (value: number, from: number, to: number) =>
+    String(Math.max(1, Math.round((value * to) / from)));
+
+  const submit = () => {
+    if (!valid) return;
+    close();
+    void resizeImage(w, h, method);
+  };
+
+  return (
+    <Dialog
+      open
+      title={t.imageSizeDialog.title}
+      onClose={close}
+      closeLabel={t.common.close}
+      footer={
+        <>
+          <Button variant="ghost" onClick={close}>
+            {t.common.cancel}
+          </Button>
+          <Button variant="primary" disabled={!valid} onClick={submit}>
+            {t.imageSizeDialog.resize}
+          </Button>
+        </>
+      }
+    >
+      <form
+        className={styles.form}
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <p className={styles.hint}>{t.imageSizeDialog.current(doc.width, doc.height)}</p>
+        <SizeFields
+          width={width}
+          height={height}
+          onWidth={(value) => {
+            setWidth(value);
+            const next = parseSize(value);
+            if (keep && next >= 1) setHeight(proportional(next, doc.width, doc.height));
+          }}
+          onHeight={(value) => {
+            setHeight(value);
+            const next = parseSize(value);
+            if (keep && next >= 1) setWidth(proportional(next, doc.height, doc.width));
+          }}
+        />
+        <label className={styles.radio}>
+          <input
+            type="checkbox"
+            checked={keep}
+            onChange={(event) => setKeep(event.target.checked)}
+          />
+          {t.imageSizeDialog.keepProportions}
+        </label>
+        <Field label={t.imageSizeDialog.resample}>
+          {({ controlId }) => (
+            <Select<ResampleMethod>
+              id={controlId}
+              value={method}
+              options={RESAMPLE_METHODS.map((value) => ({ value, label: t.resample[value] }))}
+              onChange={setMethod}
+            />
+          )}
+        </Field>
+        {valid ? (
+          <p className={styles.hint}>
+            {t.newDialog.memory(((w * h * 4) / 1024 / 1024).toFixed(1))}
+          </p>
+        ) : (
+          <p className={styles.error} role="alert">
+            {t.newDialog.sizeError(max)}
+          </p>
+        )}
+        <button type="submit" hidden />
+      </form>
+    </Dialog>
+  );
+}
+
+const ANCHORS: Array<{ key: string; anchor: Anchor }> = [
+  { key: 'top-left', anchor: { x: 0, y: 0 } },
+  { key: 'top', anchor: { x: 0.5, y: 0 } },
+  { key: 'top-right', anchor: { x: 1, y: 0 } },
+  { key: 'left', anchor: { x: 0, y: 0.5 } },
+  { key: 'center', anchor: { x: 0.5, y: 0.5 } },
+  { key: 'right', anchor: { x: 1, y: 0.5 } },
+  { key: 'bottom-left', anchor: { x: 0, y: 1 } },
+  { key: 'bottom', anchor: { x: 0.5, y: 1 } },
+  { key: 'bottom-right', anchor: { x: 1, y: 1 } },
+];
+
+function CanvasSizeDialog() {
+  const t = useT();
+  const session = useEditor((s) => s.session);
+  const secondary = useEditor((s) => s.secondary);
+  const doc = session!.doc;
+  const [width, setWidth] = useState(String(doc.width));
+  const [height, setHeight] = useState(String(doc.height));
+  const [anchor, setAnchor] = useState('center');
+  const [fill, setFill] = useState<'transparent' | 'white' | 'secondary'>('transparent');
+  const max = maxDocumentSize();
+  const w = parseSize(width);
+  const h = parseSize(height);
+  const valid = validSize(w, h, max);
+
+  const submit = () => {
+    if (!valid) return;
+    close();
+    const color = fill === 'white' ? WHITE : fill === 'secondary' ? secondary : null;
+    resizeCanvas(w, h, ANCHORS.find((entry) => entry.key === anchor)!.anchor, color);
+  };
+
+  return (
+    <Dialog
+      open
+      title={t.canvasSizeDialog.title}
+      onClose={close}
+      closeLabel={t.common.close}
+      footer={
+        <>
+          <Button variant="ghost" onClick={close}>
+            {t.common.cancel}
+          </Button>
+          <Button variant="primary" disabled={!valid} onClick={submit}>
+            {t.canvasSizeDialog.resize}
+          </Button>
+        </>
+      }
+    >
+      <form
+        className={styles.form}
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+      >
+        <p className={styles.hint}>{t.imageSizeDialog.current(doc.width, doc.height)}</p>
+        <SizeFields width={width} height={height} onWidth={setWidth} onHeight={setHeight} />
+        <fieldset className={styles.fieldset}>
+          <legend className={styles.hint}>{t.canvasSizeDialog.anchor}</legend>
+          <div className={styles.anchors} role="group" aria-label={t.canvasSizeDialog.anchor}>
+            {ANCHORS.map((entry) => (
+              <button
+                key={entry.key}
+                type="button"
+                className={styles.anchor}
+                aria-pressed={anchor === entry.key}
+                aria-label={t.canvasSizeDialog.anchors[entry.key as 'center']}
+                title={t.canvasSizeDialog.anchors[entry.key as 'center']}
+                onClick={() => setAnchor(entry.key)}
+              />
+            ))}
+          </div>
+        </fieldset>
+        <fieldset className={styles.fieldset}>
+          <legend className={styles.hint}>{t.canvasSizeDialog.fill}</legend>
+          <div className={styles.radios}>
+            {(
+              [
+                ['transparent', t.canvasSizeDialog.fillTransparent],
+                ['white', t.canvasSizeDialog.fillWhite],
+                ['secondary', `${t.canvasSizeDialog.fillSecondary} ${toHex(secondary)}`],
+              ] as const
+            ).map(([value, label]) => (
+              <label key={value} className={styles.radio}>
+                <input
+                  type="radio"
+                  name="canvas-fill"
+                  checked={fill === value}
+                  onChange={() => setFill(value)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        {!valid ? (
+          <p className={styles.error} role="alert">
+            {t.newDialog.sizeError(max)}
+          </p>
+        ) : (
+          (w < doc.width || h < doc.height) && (
+            <p className={styles.hint}>{t.canvasSizeDialog.shrinkWarning}</p>
+          )
         )}
         <button type="submit" hidden />
       </form>
@@ -300,6 +562,10 @@ export function Dialogs() {
       return <ExportDialog />;
     case 'about':
       return <AboutDialog />;
+    case 'image-size':
+      return <ImageSizeDialog />;
+    case 'canvas-size':
+      return <CanvasSizeDialog />;
     case 'unsaved':
       return <UnsavedDialog name={dialog.name} resolve={dialog.resolve} />;
   }

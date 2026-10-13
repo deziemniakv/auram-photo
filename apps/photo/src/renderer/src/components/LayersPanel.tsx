@@ -57,7 +57,9 @@ function Thumbnail({ session, layer }: { session: EditorSession; layer: Layer })
     if (ref.current) drawThumbnail(ref.current, layer);
     let timer: ReturnType<typeof setTimeout> | null = null;
     const off = session.doc.on((change) => {
-      if (change.kind !== 'pixels' || change.layerId !== layer.id || timer) return;
+      const affected =
+        change.kind === 'size' || (change.kind === 'pixels' && change.layerId === layer.id);
+      if (!affected || timer) return;
       timer = setTimeout(() => {
         timer = null;
         if (ref.current) drawThumbnail(ref.current, layer);

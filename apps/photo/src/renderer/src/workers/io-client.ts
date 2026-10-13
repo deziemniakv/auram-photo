@@ -1,6 +1,15 @@
-import type { PhotoDocument, ProjectInfo } from '@auram/photo-engine';
+import {
+  Raster,
+  Selection,
+  type Affine,
+  type DocumentGeometry,
+  type LayerTransformResult,
+  type PhotoDocument,
+  type ProjectInfo,
+  type ResampleMethod,
+} from '@auram/photo-engine';
 import type { ExportFormat } from '../../../shared/ipc';
-import type { DocumentData, WorkerRequest, WorkerResponse } from './protocol';
+import type { DocumentData, GeometryOperation, WorkerRequest, WorkerResponse } from './protocol';
 
 export class IoError extends Error {
   constructor(
@@ -97,4 +106,58 @@ export async function exportDocument(
   );
   if (response.type !== 'bytes') throw new IoError('unknown', 'Unexpected worker response');
   return response.bytes;
+}
+
+/** Resamples or rotates every layer (and the selection) in the worker. */
+export async function computeGeometry(
+  doc: PhotoDocument,
+  operation: GeometryOperation,
+): Promise<DocumentGeometry> {
+  const layers = doc.layers.map((layer) => ({ id: layer.id, data: layer.raster.data.slice() }));
+  const selection = doc.selection?.mask.slice() ?? null;
+  const response = await request(
+    {
+      type: 'geometry',
+      geometry: { width: doc.width, height: doc.height, layers, selection },
+      operation,
+    },
+    [...layers.map((layer) => layer.data.buffer), ...(selection ? [selection.buffer] : [])],
+  );
+  if (response.type !== 'geometry') throw new IoError('unknown', 'Unexpected worker response');
+  const { width, height } = response.geometry;
+  return {
+    width,
+    height,
+    rasters: new Map(
+      response.geometry.layers.map((layer) => [layer.id, new Raster(width, height, layer.data)]),
+    ),
+    selection:
+      response.geometry.selection && new Selection(width, height, response.geometry.selection),
+  };
+}
+
+/** Free-transforms the selected pixels of a layer (or all of it) in the worker. */
+export async function computeTransform(
+  doc: PhotoDocument,
+  layerId: string,
+  transform: Affine,
+  method: ResampleMethod,
+): Promise<LayerTransformResult | null> {
+  const data = doc.getLayer(layerId).raster.data.slice();
+  const selection = doc.selection?.mask.slice() ?? null;
+  const response = await request(
+    {
+      type: 'transform',
+      layer: { width: doc.width, height: doc.height, data, selection, transform, method },
+    },
+    [data.buffer, ...(selection ? [selection.buffer] : [])],
+  );
+  if (response.type !== 'transform') throw new IoError('unknown', 'Unexpected worker response');
+  const result = response.result;
+  if (!result) return null;
+  return {
+    rect: result.rect,
+    pixels: result.pixels,
+    selection: result.selection && new Selection(doc.width, doc.height, result.selection),
+  };
 }

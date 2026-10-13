@@ -4,18 +4,30 @@ import {
   PhotoDocument,
   ProjectFormatError,
   Raster,
+  Selection,
   createLayer,
   decodePngToRgba,
   flatten,
   readProject,
+  resizedGeometry,
+  rotatedGeometry,
+  transformLayerPixels,
   writeProject,
+  type DocumentGeometry,
 } from '@auram/photo-engine';
 import { encode as encodePng } from 'fast-png';
-import type { DocumentData, WorkerRequest, WorkerResponse } from './protocol';
+import type {
+  DocumentData,
+  GeometryData,
+  GeometryOperation,
+  TransformData,
+  WorkerRequest,
+  WorkerResponse,
+} from './protocol';
 
 /*
- * File work that would block the editor: PNG/ZIP encoding and decoding,
- * flattening for export, and decoding imported images.
+ * Work that would block the editor: PNG/ZIP encoding and decoding, flattening
+ * for export, decoding imported images, and resampling or transforming pixels.
  */
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -110,6 +122,44 @@ async function exportImage(
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+function processGeometry(data: GeometryData, operation: GeometryOperation): GeometryData {
+  const geometry: DocumentGeometry = {
+    width: data.width,
+    height: data.height,
+    rasters: new Map(
+      data.layers.map((layer) => [layer.id, new Raster(data.width, data.height, layer.data)]),
+    ),
+    selection: data.selection && new Selection(data.width, data.height, data.selection),
+  };
+  const next =
+    operation.kind === 'resize'
+      ? resizedGeometry(geometry, operation.width, operation.height, operation.method)
+      : rotatedGeometry(geometry, operation.turns);
+  return {
+    width: next.width,
+    height: next.height,
+    layers: [...next.rasters].map(([id, raster]) => ({ id, data: raster.data })),
+    selection: next.selection?.mask ?? null,
+  };
+}
+
+function processTransform(layer: TransformData): WorkerResponse {
+  const result = transformLayerPixels(
+    new Raster(layer.width, layer.height, layer.data),
+    layer.selection && new Selection(layer.width, layer.height, layer.selection),
+    layer.transform,
+    layer.method,
+  );
+  return {
+    type: 'transform',
+    result: result && {
+      rect: result.rect,
+      pixels: result.pixels,
+      selection: result.selection?.mask ?? null,
+    },
+  };
+}
+
 async function run(
   request: WorkerRequest,
 ): Promise<{ response: WorkerResponse; transfer: Transferable[] }> {
@@ -149,6 +199,26 @@ async function run(
     case 'export': {
       const bytes = await exportImage(request.doc, request.format, request.quality);
       return { response: { type: 'bytes', bytes }, transfer: [bytes.buffer] };
+    }
+    case 'geometry': {
+      const geometry = processGeometry(request.geometry, request.operation);
+      return {
+        response: { type: 'geometry', geometry },
+        transfer: [
+          ...geometry.layers.map((layer) => layer.data.buffer),
+          ...(geometry.selection ? [geometry.selection.buffer] : []),
+        ],
+      };
+    }
+    case 'transform': {
+      const response = processTransform(request.layer);
+      const result = response.type === 'transform' ? response.result : null;
+      return {
+        response,
+        transfer: result
+          ? [result.pixels.buffer, ...(result.selection ? [result.selection.buffer] : [])]
+          : [],
+      };
     }
   }
 }

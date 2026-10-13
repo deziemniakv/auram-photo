@@ -7,10 +7,17 @@ import {
 } from '@auram/photo-engine/webgl';
 import { ErrorState } from '@auram/ui';
 import { setMaxTextureSize, setView, setViewportSize } from '../editor/actions';
+import { attachCompositor, currentCrop, setCropRect } from '../editor/geometry';
 import type { EditorSession } from '../editor/session';
 import { useEditor, type ToolId } from '../editor/store';
 import { fitView, screenToDoc, zoomAt } from '../editor/view';
 import { useT } from '../i18n';
+import {
+  cropHandler,
+  drawCropOverlay,
+  drawTransformOverlay,
+  transformHandler,
+} from '../tools/geometry-tools';
 import { createToolHandler, handHandler } from '../tools/handlers';
 import type { ToolContext, ToolHandler, ToolOverlay, ToolPointer } from '../tools/types';
 import styles from './Canvas.module.css';
@@ -27,6 +34,7 @@ const CURSORS: Record<ToolId, string> = {
   move: 'move',
   'marquee-rect': 'crosshair',
   'marquee-ellipse': 'crosshair',
+  crop: 'crosshair',
   brush: 'none',
   eraser: 'none',
   eyedropper: 'crosshair',
@@ -63,7 +71,9 @@ export function Canvas({ session }: { session: EditorSession }) {
   const styleRef = useRef<DisplayStyle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const tool = useEditor((s) => s.tool);
+  const transforming = useEditor((s) => s.transforming);
   const [spaceDown, setSpaceDown] = useState(false);
+  const [hoverCursor, setHoverCursor] = useState<string | null>(null);
 
   const drawOverlay = useCallback(() => {
     const canvas = overlayRef.current;
@@ -100,8 +110,9 @@ export function Canvas({ session }: { session: EditorSession }) {
       g.setLineDash([]);
     };
 
+    const state = useEditor.getState();
     const selection = session.doc.selection;
-    if (selection) {
+    if (selection && !state.transforming) {
       const segments = selection.outline();
       dashed(() => {
         g.beginPath();
@@ -136,9 +147,17 @@ export function Canvas({ session }: { session: EditorSession }) {
       });
     }
 
-    const state = useEditor.getState();
+    if (state.tool === 'crop' && !state.transforming)
+      drawCropOverlay(g, v, session.doc.width, session.doc.height);
+    drawTransformOverlay(g, v);
+
     const pointer = pointerRef.current;
-    if (pointer && (state.tool === 'brush' || state.tool === 'eraser') && !held.has('Space')) {
+    if (
+      pointer &&
+      (state.tool === 'brush' || state.tool === 'eraser') &&
+      !state.transforming &&
+      !held.has('Space')
+    ) {
       const size = (state.tool === 'brush' ? state.brush : state.eraser).size;
       const radius = Math.max(1, (size / 2) * v.scale);
       for (const [color, offset] of [
@@ -186,11 +205,21 @@ export function Canvas({ session }: { session: EditorSession }) {
         return;
       }
       compositorRef.current = compositor;
+      attachCompositor(compositor);
       setMaxTextureSize(compositor.maxTextureSize);
-      const off = session.doc.on(() => requestRender());
+      const off = session.doc.on((change) => {
+        if (change.kind === 'size') {
+          // Image size, canvas size, crop and rotation: show the whole new canvas.
+          if (currentCrop()) setCropRect(null);
+          const { width, height } = sizeRef.current;
+          if (width > 0) setView(fitView(session.doc.width, session.doc.height, width, height));
+        }
+        requestRender();
+      });
       requestRender();
       return () => {
         off();
+        attachCompositor(null);
         if (frameRef.current) cancelAnimationFrame(frameRef.current);
         frameRef.current = 0;
         compositorRef.current = null;
@@ -222,7 +251,12 @@ export function Canvas({ session }: { session: EditorSession }) {
   useEffect(
     () =>
       useEditor.subscribe((s, prev) => {
-        if (s.viewRevision !== prev.viewRevision || s.selectionRevision !== prev.selectionRevision)
+        if (
+          s.viewRevision !== prev.viewRevision ||
+          s.selectionRevision !== prev.selectionRevision ||
+          s.geometryRevision !== prev.geometryRevision ||
+          s.tool !== prev.tool
+        )
           requestRender();
       }),
     [requestRender],
@@ -291,9 +325,16 @@ export function Canvas({ session }: { session: EditorSession }) {
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     const ctx = context();
     if (!ctx || gestureRef.current || (event.button !== 0 && event.button !== 1)) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const state = useEditor.getState();
     const panning = event.button === 1 || held.has('Space');
-    const handler = panning ? handHandler() : createToolHandler(useEditor.getState().tool);
+    // Pixels must not change while the worker processes them.
+    if (state.busy && !panning) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const handler = panning
+      ? handHandler()
+      : state.transforming
+        ? transformHandler()
+        : createToolHandler(state.tool);
     gestureRef.current = { handler, pointerId: event.pointerId };
     handler.down(ctx, toPointer(event));
   };
@@ -303,6 +344,15 @@ export function Canvas({ session }: { session: EditorSession }) {
     trackCursor(pointer);
     const gesture = gestureRef.current;
     const ctx = context();
+    if (!gesture && ctx) {
+      const state = useEditor.getState();
+      const hover = state.transforming
+        ? transformHandler().hover!(ctx, pointer)
+        : state.tool === 'crop'
+          ? cropHandler().hover!(ctx, pointer)
+          : null;
+      if (hover !== hoverCursor) setHoverCursor(hover);
+    }
     if (!gesture || !ctx || gesture.pointerId !== event.pointerId) return;
     const events = event.nativeEvent.getCoalescedEvents?.() ?? [];
     gesture.handler.move(ctx, pointer, events.length > 0 ? events.map(toPointer) : [pointer]);
@@ -357,7 +407,9 @@ export function Canvas({ session }: { session: EditorSession }) {
     return () => element?.removeEventListener('wheel', onWheel);
   }, [onWheel]);
 
-  const cursor = spaceDown ? 'grab' : CURSORS[tool];
+  const cursor = spaceDown
+    ? 'grab'
+    : ((transforming || tool === 'crop' ? hoverCursor : null) ?? CURSORS[tool]);
 
   return (
     <div

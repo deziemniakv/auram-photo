@@ -5,6 +5,7 @@ import {
   WHITE,
   type BrushSettings,
   type HistoryState,
+  type ResampleMethod,
   type Rgba,
   type SelectionMode,
 } from '@auram/photo-engine';
@@ -13,15 +14,25 @@ import type { AppInfo } from '../../../shared/ipc';
 import type { EditorSession } from './session';
 
 export type ToolId =
-  'move' | 'marquee-rect' | 'marquee-ellipse' | 'brush' | 'eraser' | 'eyedropper' | 'hand' | 'zoom';
+  | 'move'
+  | 'marquee-rect'
+  | 'marquee-ellipse'
+  | 'crop'
+  | 'brush'
+  | 'eraser'
+  | 'eyedropper'
+  | 'hand'
+  | 'zoom';
 
 export type Dialog =
   | { type: 'new' }
   | { type: 'export' }
   | { type: 'about' }
+  | { type: 'image-size' }
+  | { type: 'canvas-size' }
   | { type: 'unsaved'; name: string; resolve: (choice: 'save' | 'discard' | 'cancel') => void };
 
-export type Busy = 'opening' | 'saving' | 'exporting' | null;
+export type Busy = 'opening' | 'saving' | 'exporting' | 'processing' | null;
 
 const EMPTY_HISTORY: HistoryState = {
   canUndo: false,
@@ -51,6 +62,12 @@ export interface EditorState {
   zoom: number;
   /** Bumped on every pan or zoom. */
   viewRevision: number;
+  /** True while a free transform is being edited. */
+  transforming: boolean;
+  /** Bumped when the free transform or the crop rectangle changes. */
+  geometryRevision: number;
+  /** Interpolation for free transforms. */
+  transformMethod: ResampleMethod;
   cursor: { x: number; y: number } | null;
   busy: Busy;
   dialog: Dialog | null;
@@ -74,6 +91,9 @@ export const useEditor = create<EditorState>(() => ({
   sampleMerged: true,
   zoom: 1,
   viewRevision: 0,
+  transforming: false,
+  geometryRevision: 0,
+  transformMethod: 'bicubic',
   cursor: null,
   busy: null,
   dialog: null,
@@ -92,6 +112,12 @@ export function setSession(session: EditorSession | null): void {
   if (session) {
     const offDoc = session.doc.on((change) => {
       if (change.kind === 'pixels') set((s) => ({ pixelsRevision: s.pixelsRevision + 1 }));
+      else if (change.kind === 'size')
+        set((s) => ({
+          layersRevision: s.layersRevision + 1,
+          pixelsRevision: s.pixelsRevision + 1,
+          selectionRevision: s.selectionRevision + 1,
+        }));
       else if (change.kind === 'selection')
         set((s) => ({ selectionRevision: s.selectionRevision + 1 }));
       else set((s) => ({ layersRevision: s.layersRevision + 1 }));

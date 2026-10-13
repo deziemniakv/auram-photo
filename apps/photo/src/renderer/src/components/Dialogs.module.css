@@ -68,6 +68,46 @@
   border: 0;
 }
 
+.fieldset legend {
+  padding: 0;
+}
+
 .links {
   margin-top: var(--space-4);
+}
+
+.anchors {
+  display: grid;
+  grid-template-columns: repeat(3, 28px);
+  grid-auto-rows: 28px;
+  gap: var(--space-1);
+}
+
+.anchor {
+  position: relative;
+  padding: 0;
+  background: var(--color-surface-2);
+  border: var(--border-width) solid var(--color-border);
+  cursor: pointer;
+}
+
+.anchor::after {
+  content: '';
+  position: absolute;
+  inset: 11px;
+  background: var(--color-text-tertiary);
+}
+
+.anchor[aria-pressed='true'] {
+  border-color: var(--color-primary);
+}
+
+.anchor[aria-pressed='true']::after {
+  inset: 6px;
+  background: var(--color-primary);
+}
+
+.anchor:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: 1px;
 }

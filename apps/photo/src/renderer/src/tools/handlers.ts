@@ -12,6 +12,7 @@ import { publishDocumentState } from '../editor/actions';
 import { toast, useEditor, type ToolId } from '../editor/store';
 import { stepZoom, zoomAt } from '../editor/view';
 import { currentT } from '../i18n';
+import { cropHandler } from './geometry-tools';
 import type { ToolContext, ToolHandler, ToolPointer } from './types';
 
 const get = useEditor.getState;
@@ -242,6 +243,8 @@ export function createToolHandler(tool: ToolId): ToolHandler {
       return marqueeTool('ellipse');
     case 'move':
       return moveTool();
+    case 'crop':
+      return cropHandler();
     case 'eyedropper':
       return eyedropperTool();
     case 'hand':

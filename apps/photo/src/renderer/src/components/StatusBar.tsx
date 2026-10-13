@@ -9,9 +9,16 @@ export function StatusBar() {
   const cursor = useEditor((s) => s.cursor);
   const busy = useEditor((s) => s.busy);
   const edited = useEditor((s) => s.edited);
+  // The document size changes with image size, canvas size, crop and rotation.
+  useEditor((s) => s.layersRevision);
   const busyText =
     busy &&
-    { opening: t.status.opening, saving: t.status.saving, exporting: t.status.exporting }[busy];
+    {
+      opening: t.status.opening,
+      saving: t.status.saving,
+      exporting: t.status.exporting,
+      processing: t.status.processing,
+    }[busy];
 
   return (
     <footer className={styles.status} aria-live="polite">

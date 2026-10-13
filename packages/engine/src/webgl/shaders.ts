@@ -22,7 +22,32 @@ uniform float u_opacity;
 uniform int u_mode;
 uniform ivec2 u_offset;
 uniform ivec2 u_size;
+// Floating pixels of a free transform, drawn over this layer through u_floatInverse.
+uniform bool u_hasFloat;
+uniform sampler2D u_float;
+uniform ivec2 u_floatSize;
+uniform vec2 u_floatOrigin;
+uniform mat3 u_floatInverse;
 out vec4 outColor;
+
+vec4 floatTexel(ivec2 q) {
+  if (q.x < 0 || q.y < 0 || q.x >= u_floatSize.x || q.y >= u_floatSize.y) return vec4(0.0);
+  vec4 c = texelFetch(u_float, q, 0);
+  return vec4(c.rgb * c.a, c.a);
+}
+
+/** Premultiplied bilinear sample of the floating pixels at a document position. */
+vec4 sampleFloat(vec2 docPos) {
+  vec2 c = (u_floatInverse * vec3(docPos, 1.0)).xy - u_floatOrigin - 0.5;
+  vec2 f = floor(c);
+  vec2 t = c - f;
+  ivec2 i = ivec2(f);
+  return mix(
+    mix(floatTexel(i), floatTexel(i + ivec2(1, 0)), t.x),
+    mix(floatTexel(i + ivec2(0, 1)), floatTexel(i + ivec2(1, 1)), t.x),
+    t.y
+  );
+}
 
 float lum(vec3 c) { return dot(c, vec3(0.3, 0.59, 0.11)); }
 vec3 clipColor(vec3 c) {
@@ -85,6 +110,11 @@ void main() {
   vec4 b = texelFetch(u_backdrop, p, 0);
   ivec2 q = p - u_offset;
   vec4 s = (q.x < 0 || q.y < 0 || q.x >= u_size.x || q.y >= u_size.y) ? vec4(0.0) : texelFetch(u_layer, q, 0);
+  if (u_hasFloat) {
+    vec4 f = sampleFloat(vec2(p) + 0.5);
+    vec4 o = f + vec4(s.rgb * s.a, s.a) * (1.0 - f.a);
+    s = o.a > 0.0 ? vec4(o.rgb / o.a, o.a) : vec4(0.0);
+  }
   float as = s.a * u_opacity;
   if (as <= 0.0) { outColor = b; return; }
   float ab = b.a;

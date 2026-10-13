@@ -1,17 +1,28 @@
 import type { Dictionary } from '../i18n';
 import {
   closeDocument,
+  cropToSelection,
   edit,
   openWithDialog,
   redo,
   resetColors,
+  rotate,
   save,
   swapColors,
   undo,
   view,
 } from './actions';
+import {
+  applyCrop,
+  beginTransform,
+  cancelTransform,
+  commitTransform,
+  currentCrop,
+  setCropRect,
+} from './geometry';
 import { useEditor, type EditorState, type ToolId } from './store';
 import { call } from '../lib/api';
+import { nudgeTransform } from '../tools/geometry-tools';
 
 export interface KeyBinding {
   /** `KeyboardEvent.key`, lower-cased. */
@@ -29,7 +40,9 @@ export interface AppCommand {
   enabled?: (state: EditorState) => boolean;
 }
 
-const hasDoc = (s: EditorState) => s.session !== null && s.busy === null;
+/** A document is open and can be edited (nothing is processing or being transformed). */
+const hasDoc = (s: EditorState) => s.session !== null && s.busy === null && !s.transforming;
+const viewable = (s: EditorState) => s.session !== null;
 const hasSelection = (s: EditorState) => hasDoc(s) && s.session!.doc.selection !== null;
 const multiLayer = (s: EditorState) => hasDoc(s) && s.session!.doc.layers.length > 1;
 const notBottom = (s: EditorState) =>
@@ -37,7 +50,7 @@ const notBottom = (s: EditorState) =>
 const notTop = (s: EditorState) =>
   hasDoc(s) &&
   s.session!.doc.indexOf(s.session!.doc.activeLayerId) < s.session!.doc.layers.length - 1;
-const open = (dialog: 'new' | 'export' | 'about') => () =>
+const open = (dialog: 'new' | 'export' | 'about' | 'image-size' | 'canvas-size') => () =>
   useEditor.setState({ dialog: { type: dialog } });
 
 export const COMMANDS = {
@@ -118,6 +131,52 @@ export const COMMANDS = {
     enabled: hasSelection,
   },
 
+  freeTransform: {
+    id: 'freeTransform',
+    label: (t) => t.menu.freeTransform,
+    keys: [{ key: 't', mod: true }],
+    run: beginTransform,
+    enabled: hasDoc,
+  },
+
+  imageSize: {
+    id: 'imageSize',
+    label: (t) => t.menu.imageSize,
+    keys: [{ key: 'i', mod: true, alt: true }],
+    run: open('image-size'),
+    enabled: hasDoc,
+  },
+  canvasSize: {
+    id: 'canvasSize',
+    label: (t) => t.menu.canvasSize,
+    keys: [{ key: 'c', mod: true, alt: true }],
+    run: open('canvas-size'),
+    enabled: hasDoc,
+  },
+  cropToSelection: {
+    id: 'cropToSelection',
+    label: (t) => t.menu.cropToSelection,
+    run: cropToSelection,
+    enabled: hasSelection,
+  },
+  rotateClockwise: {
+    id: 'rotateClockwise',
+    label: (t) => t.menu.rotateClockwise,
+    run: () => void rotate(1),
+    enabled: hasDoc,
+  },
+  rotateCounterClockwise: {
+    id: 'rotateCounterClockwise',
+    label: (t) => t.menu.rotateCounterClockwise,
+    run: () => void rotate(3),
+    enabled: hasDoc,
+  },
+  rotate180: {
+    id: 'rotate180',
+    label: (t) => t.menu.rotate180,
+    run: () => void rotate(2),
+    enabled: hasDoc,
+  },
   flipHorizontal: {
     id: 'flipHorizontal',
     label: (t) => t.menu.flipHorizontal,
@@ -203,28 +262,28 @@ export const COMMANDS = {
       { key: '+', mod: true },
     ],
     run: view.zoomIn,
-    enabled: hasDoc,
+    enabled: viewable,
   },
   zoomOut: {
     id: 'zoomOut',
     label: (t) => t.menu.zoomOut,
     keys: [{ key: '-', mod: true }],
     run: view.zoomOut,
-    enabled: hasDoc,
+    enabled: viewable,
   },
   fit: {
     id: 'fit',
     label: (t) => t.menu.fitToWindow,
     keys: [{ key: '0', mod: true }],
     run: view.fit,
-    enabled: hasDoc,
+    enabled: viewable,
   },
   actualSize: {
     id: 'actualSize',
     label: (t) => t.menu.actualSize,
     keys: [{ key: '1', mod: true }],
     run: view.actualSize,
-    enabled: hasDoc,
+    enabled: viewable,
   },
 
   openLogs: {
@@ -247,8 +306,28 @@ export const MENUS: Array<{
     label: (t) => t.menu.file,
     items: ['new', 'open', '-', 'save', 'saveAs', 'export', '-', 'close'],
   },
-  { id: 'edit', label: (t) => t.menu.edit, items: ['undo', 'redo', '-', 'fill', 'clear'] },
-  { id: 'image', label: (t) => t.menu.image, items: ['flipHorizontal', 'flipVertical'] },
+  {
+    id: 'edit',
+    label: (t) => t.menu.edit,
+    items: ['undo', 'redo', '-', 'fill', 'clear', '-', 'freeTransform'],
+  },
+  {
+    id: 'image',
+    label: (t) => t.menu.image,
+    items: [
+      'imageSize',
+      'canvasSize',
+      '-',
+      'cropToSelection',
+      '-',
+      'rotateClockwise',
+      'rotateCounterClockwise',
+      'rotate180',
+      '-',
+      'flipHorizontal',
+      'flipVertical',
+    ],
+  },
   {
     id: 'layer',
     label: (t) => t.menu.layer,
@@ -274,6 +353,7 @@ export const MENUS: Array<{
 
 export const TOOL_KEYS: Record<string, ToolId> = {
   v: 'move',
+  c: 'crop',
   b: 'brush',
   e: 'eraser',
   i: 'eyedropper',
@@ -288,7 +368,13 @@ export function formatBinding(binding: KeyBinding): string {
   if (binding.mod) parts.push(isMac() ? '⌘' : 'Ctrl');
   if (binding.alt) parts.push(isMac() ? '⌥' : 'Alt');
   if (binding.shift) parts.push('Shift');
-  const names: Record<string, string> = { delete: 'Del', backspace: 'Backspace', '=': '+' };
+  const names: Record<string, string> = {
+    delete: 'Del',
+    backspace: 'Backspace',
+    enter: 'Enter',
+    escape: 'Esc',
+    '=': '+',
+  };
   parts.push(names[binding.key] ?? binding.key.toUpperCase());
   return parts.join(isMac() ? '' : '+');
 }
@@ -307,6 +393,35 @@ function matches(event: KeyboardEvent, binding: KeyBinding): boolean {
 export function handleShortcut(event: KeyboardEvent): boolean {
   const state = useEditor.getState();
   if (state.dialog) return false;
+  const plain = !(event.ctrlKey || event.metaKey || event.altKey);
+  if (state.transforming && plain) {
+    const step = event.shiftKey ? 10 : 1;
+    const nudges: Record<string, [number, number]> = {
+      arrowleft: [-step, 0],
+      arrowright: [step, 0],
+      arrowup: [0, -step],
+      arrowdown: [0, step],
+    };
+    const key = event.key.toLowerCase();
+    if (key === 'enter') void commitTransform();
+    else if (key === 'escape') cancelTransform();
+    else if (nudges[key]) {
+      if (!state.busy) nudgeTransform(...nudges[key]);
+    }
+    // Tool and colour keys do nothing while transforming; Tab and the like still work.
+    else return key.length === 1;
+    return true;
+  }
+  if (state.tool === 'crop' && currentCrop() && plain && !state.busy) {
+    if (event.key === 'Enter') {
+      applyCrop();
+      return true;
+    }
+    if (event.key === 'Escape') {
+      setCropRect(null);
+      return true;
+    }
+  }
   for (const command of Object.values(COMMANDS) as AppCommand[]) {
     if (!command.keys?.some((binding) => matches(event, binding))) continue;
     if (command.enabled && !command.enabled(state)) return true;

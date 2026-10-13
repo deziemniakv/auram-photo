@@ -10,8 +10,8 @@ export interface Layer {
   /** 0..1 */
   opacity: number;
   blendMode: BlendMode;
-  /** Full-document-size pixel buffer. */
-  readonly raster: Raster;
+  /** Full-document-size pixel buffer. Replaced when the document size changes. */
+  raster: Raster;
 }
 
 export type LayerProps = Pick<Layer, 'name' | 'visible' | 'opacity' | 'blendMode'>;
@@ -21,10 +21,37 @@ export type DocumentChange =
   | { kind: 'pixels'; layerId: string; rect: Rect }
   /** Layers were added, removed, reordered, or their properties changed. */
   | { kind: 'layers' }
+  /**
+   * The document size changed: every layer has a new raster and the selection was
+   * replaced. Treat everything as changed.
+   */
+  | { kind: 'size' }
   | { kind: 'active-layer' }
   | { kind: 'selection' };
 
 export const MAX_DOCUMENT_SIZE = 16384;
+
+/** Size, layer pixels and selection: everything a size change replaces at once. */
+export interface DocumentGeometry {
+  width: number;
+  height: number;
+  /** One raster per layer id, all `width` × `height`. */
+  rasters: ReadonlyMap<string, Raster>;
+  selection: Selection | null;
+}
+
+export function assertDocumentSize(width: number, height: number): void {
+  if (
+    !Number.isInteger(width) ||
+    !Number.isInteger(height) ||
+    width < 1 ||
+    height < 1 ||
+    width > MAX_DOCUMENT_SIZE ||
+    height > MAX_DOCUMENT_SIZE
+  ) {
+    throw new RangeError(`Unsupported document size ${width}×${height}`);
+  }
+}
 export const MAX_LAYERS = 256;
 
 export function createId(): string {
@@ -58,18 +85,52 @@ export class PhotoDocument {
   selection: Selection | null = null;
   private readonly listeners = new Set<(change: DocumentChange) => void>();
 
-  constructor(
-    readonly width: number,
-    readonly height: number,
-    layers: Layer[],
-  ) {
-    if (width < 1 || height < 1 || width > MAX_DOCUMENT_SIZE || height > MAX_DOCUMENT_SIZE) {
-      throw new RangeError(`Unsupported document size ${width}×${height}`);
-    }
+  private size: { width: number; height: number };
+
+  constructor(width: number, height: number, layers: Layer[]) {
+    assertDocumentSize(width, height);
+    this.size = { width, height };
     if (layers.length === 0) throw new RangeError('A document needs at least one layer');
     for (const layer of layers) this.assertLayerSize(layer);
     this.layers.push(...layers);
     this.activeLayerId = layers[layers.length - 1]!.id;
+  }
+
+  get width(): number {
+    return this.size.width;
+  }
+
+  get height(): number {
+    return this.size.height;
+  }
+
+  /** The current size, layer rasters and selection (by reference, not copied). */
+  geometry(): DocumentGeometry {
+    return {
+      width: this.width,
+      height: this.height,
+      rasters: new Map(this.layers.map((layer) => [layer.id, layer.raster])),
+      selection: this.selection,
+    };
+  }
+
+  /** Replaces the size, every layer's raster and the selection in one step. */
+  setGeometry(geometry: DocumentGeometry): void {
+    const { width, height, rasters, selection } = geometry;
+    assertDocumentSize(width, height);
+    for (const layer of this.layers) {
+      const raster = rasters.get(layer.id);
+      if (!raster || raster.width !== width || raster.height !== height) {
+        throw new RangeError(`No ${width}×${height} raster for layer ${layer.id}`);
+      }
+    }
+    if (selection && (selection.width !== width || selection.height !== height)) {
+      throw new RangeError('Selection size does not match the document');
+    }
+    this.size = { width, height };
+    for (const layer of this.layers) layer.raster = rasters.get(layer.id)!;
+    this.selection = selection && !selection.isEmpty() ? selection : null;
+    this.emit({ kind: 'size' });
   }
 
   private assertLayerSize(layer: Layer): void {

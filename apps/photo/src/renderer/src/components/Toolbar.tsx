@@ -1,5 +1,6 @@
 import {
   Circle,
+  Crop,
   Eraser,
   Hand,
   Move,
@@ -19,6 +20,7 @@ const TOOLS: Array<{ id: ToolId; icon: LucideIcon; key: string } | '-'> = [
   { id: 'move', icon: Move, key: 'V' },
   { id: 'marquee-rect', icon: Square, key: 'M' },
   { id: 'marquee-ellipse', icon: Circle, key: 'M' },
+  { id: 'crop', icon: Crop, key: 'C' },
   '-',
   { id: 'brush', icon: Paintbrush, key: 'B' },
   { id: 'eraser', icon: Eraser, key: 'E' },

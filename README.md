@@ -12,8 +12,9 @@ Auram Photo is a layer-based raster editor for Windows. It is installed, updated
 [Auram Launcher](https://github.com/deziemniakv/Auram-Launcher) and saves work in the shared Auram
 project format (`.cproj`), which the launcher lists with names and thumbnails.
 
-> **Status: early development (0.1.0, milestone 1).** The core editor works; many features a
-> photo editor needs are not built yet. See [What works today](#what-works-today) and the
+> **Status: early development (0.1.0 released; milestone 2 in progress).** The core editor and
+> image geometry (resize, canvas size, crop, rotate, free transform) work; many features a photo
+> editor needs are not built yet. See [What works today](#what-works-today) and the
 > [roadmap](#roadmap).
 
 ## What works today
@@ -25,12 +26,14 @@ project format (`.cproj`), which the launcher lists with names and thumbnails.
 | GPU compositing (WebGL 2) with pan, zoom and smooth zoom-out                                                              | Implemented; verified against a CPU reference for every blend mode |
 | Tools: move, rectangular and elliptical marquee (new / add / subtract / intersect), brush, eraser, eyedropper, hand, zoom | Implemented                                                        |
 | Fill, clear, select all / deselect / invert, flip canvas                                                                  | Implemented                                                        |
+| Image size (bicubic, bilinear, Lanczos, nearest neighbour), canvas size with anchor, crop tool, crop to selection         | Implemented (milestone 2)                                          |
+| Rotate canvas 90° / 180°; free transform of a layer or selection (move, scale, rotate, GPU preview)                       | Implemented (milestone 2)                                          |
 | Undo / redo with memory limits                                                                                            | Implemented                                                        |
 | Save and open `.cproj` projects (lossless per-layer PNG, thumbnail for the launcher)                                      | Implemented                                                        |
 | Export PNG (lossless), JPEG, WebP                                                                                         | Implemented                                                        |
 | English and Polish interface                                                                                              | Implemented                                                        |
 | Launcher integration: opens projects passed by Auram Launcher, release manifest generation                                | Implemented                                                        |
-| Pressure sensitivity, adjustments, filters, text, shapes, transform, crop, resize, colour management                      | Not yet                                                            |
+| Pressure sensitivity, adjustments, filters, text, shapes, layer masks, colour management                                  | Not yet                                                            |
 
 ## Development
 
@@ -74,10 +77,11 @@ scripts/                 Licence list, app descriptor and release manifest gener
 
 ## Roadmap
 
-Milestone 2 candidates, roughly in priority order: image and canvas resize, crop, free transform,
-adjustments (levels, curves, hue/saturation) as non-destructive adjustment layers, pen pressure,
-text and shape layers, layer masks, larger-than-canvas layers, colour management (ICC), and a
-CPU rendering fallback for machines without WebGL 2.
+Milestone 2 (in progress) covers image geometry: image size, canvas size, crop, rotation and
+free transform are done. Next candidates, roughly in priority order: adjustments (levels, curves,
+hue/saturation) as non-destructive adjustment layers, pen pressure, text and shape layers, layer
+masks, larger-than-canvas layers, colour management (ICC), and a CPU rendering fallback for
+machines without WebGL 2.
 
 ## Contributing and security
 

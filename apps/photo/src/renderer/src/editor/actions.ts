@@ -1,6 +1,10 @@
 import {
   MAX_DOCUMENT_SIZE,
   addLayer,
+  applyGeometry,
+  crop,
+  resizeCanvas as resizeCanvasOperation,
+  rotationLabel,
   clearSelected,
   createDocument,
   deleteLayer,
@@ -17,20 +21,26 @@ import {
   PhotoDocument,
   Raster,
   createLayer,
+  type Anchor,
   type Background,
   type Command,
   type LayerProps,
+  type QuarterTurns,
+  type ResampleMethod,
+  type Rgba,
 } from '@auram/photo-engine';
 import type { ExportFormat, OpenedFile } from '../../../shared/ipc';
 import { currentT } from '../i18n';
 import { call, messageOf } from '../lib/api';
 import {
   IoError,
+  computeGeometry,
   decodeImage,
   decodeProject,
   encodeProject,
   exportDocument,
 } from '../workers/io-client';
+import { cancelTransform, resetGeometryState } from './geometry';
 import { EditorSession, stripExtension } from './session';
 import { refreshEdited, setSession, toast, useEditor } from './store';
 import { centered, fitView, stepZoom, zoomAt } from './view';
@@ -60,6 +70,7 @@ export function viewportSize() {
 
 /** Asks what to do with unsaved changes. Resolves true when it is safe to continue. */
 export async function guardUnsaved(): Promise<boolean> {
+  if (get().transforming) cancelTransform();
   const session = get().session;
   if (!session || !session.edited) return true;
   const choice = await new Promise<'save' | 'discard' | 'cancel'>((resolve) =>
@@ -72,6 +83,7 @@ export async function guardUnsaved(): Promise<boolean> {
 }
 
 function activate(session: EditorSession): void {
+  resetGeometryState();
   setSession(session);
   publishDocumentState();
 }
@@ -115,6 +127,7 @@ export async function newDocument(
 
 export async function closeDocument(): Promise<void> {
   if (!(await guardUnsaved())) return;
+  resetGeometryState();
   setSession(null);
   publishDocumentState();
 }
@@ -300,6 +313,44 @@ export const edit = {
   flipHorizontal: () => apply(({ doc }) => flipDocument(doc, true)),
   flipVertical: () => apply(({ doc }) => flipDocument(doc, false)),
 };
+
+/* -------------------------------- geometry ------------------------------- */
+
+/** Runs a resampling or rotation in the worker and records the result as one step. */
+async function changeGeometry(
+  label: string,
+  operation: Parameters<typeof computeGeometry>[1],
+): Promise<void> {
+  const session = get().session;
+  if (!session || get().busy) return;
+  set({ busy: 'processing' });
+  try {
+    const geometry = await computeGeometry(session.doc, operation);
+    if (get().session === session) apply(({ doc }) => applyGeometry(doc, label, geometry));
+  } catch (error) {
+    toast({ tone: 'error', title: currentT().toasts.processingFailed, body: messageOf(error) });
+  } finally {
+    set({ busy: null });
+  }
+}
+
+export function resizeImage(width: number, height: number, method: ResampleMethod) {
+  const session = get().session;
+  if (!session || (width === session.doc.width && height === session.doc.height)) return;
+  return changeGeometry('image-size', { kind: 'resize', width, height, method });
+}
+
+export function rotate(turns: QuarterTurns) {
+  return changeGeometry(rotationLabel(turns), { kind: 'rotate', turns });
+}
+
+export function resizeCanvas(width: number, height: number, anchor: Anchor, fill: Rgba | null) {
+  apply(({ doc }) => resizeCanvasOperation(doc, width, height, anchor, fill));
+}
+
+export function cropToSelection() {
+  apply(({ doc }) => (doc.selection ? crop(doc, doc.selection.bounds()) : null));
+}
 
 /* --------------------------------- view ---------------------------------- */
 

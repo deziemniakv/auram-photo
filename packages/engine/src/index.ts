@@ -1,4 +1,5 @@
 export * from './geometry';
+export * from './affine';
 export * from './color';
 export * from './raster';
 export * from './blend';
@@ -8,4 +9,6 @@ export * from './history';
 export * as commands from './commands';
 export * from './brush';
 export * from './operations';
+export * from './resample';
+export * from './transform';
 export * from './project';

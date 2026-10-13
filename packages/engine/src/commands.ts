@@ -1,4 +1,4 @@
-import type { Layer, LayerProps, PhotoDocument } from './document';
+import type { DocumentGeometry, Layer, LayerProps, PhotoDocument } from './document';
 import type { Rect } from './geometry';
 import type { Command } from './history';
 import type { Selection } from './selection';
@@ -111,5 +111,22 @@ export function compound(label: string, commands: Command[]): Command {
     redo: (doc) => {
       for (const command of commands) command.redo(doc);
     },
+  };
+}
+
+/** Changes the document size, all layer pixels and the selection together. */
+export function geometryChange(
+  label: string,
+  before: DocumentGeometry,
+  after: DocumentGeometry,
+): Command {
+  const bytes = (geometry: DocumentGeometry) =>
+    [...geometry.rasters.values()].reduce((sum, raster) => sum + raster.data.byteLength, 0) +
+    (geometry.selection?.mask.byteLength ?? 0);
+  return {
+    label,
+    bytes: bytes(before) + bytes(after),
+    undo: (doc) => doc.setGeometry(before),
+    redo: (doc) => doc.setGeometry(after),
   };
 }
